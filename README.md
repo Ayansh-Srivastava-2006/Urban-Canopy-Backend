@@ -32,7 +32,24 @@ Create a `.env` file in the root directory:
 PORT=5000
 NODE_ENV=development
 JWT_SECRET=your_super_secret_jwt_key
+APP_FRONTEND_ORIGINS=http://localhost:8081,http://localhost:19006
+WEB_FRONTEND_ORIGINS=http://localhost:3000,http://localhost:5173
+OPENROUTER_API_KEY=your_openrouter_api_key
+NEMOTRON_MODEL=nvidia/llama-3.1-nemotron-70b-instruct:free
+NEMOTRON_SUMMARY_MODEL=nvidia/llama-3.1-nemotron-70b-instruct:free
+OPENROUTER_MODEL=nvidia/llama-3.1-nemotron-70b-instruct:free
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+OPENROUTER_SITE_URL=http://localhost:5000
+OPENROUTER_APP_NAME=Urban-Canopy-Backend
 ```
+
+`APP_FRONTEND_ORIGINS` should contain origins used by the mobile app frontend.
+
+`WEB_FRONTEND_ORIGINS` should contain origins used by the admin web frontend.
+
+Set `NEMOTRON_MODEL` to the exact free NVIDIA Nemotron 3 Super slug available on your provider/OpenRouter account.
+
+Use `NEMOTRON_SUMMARY_MODEL` if you want a separate model setting for post summarization.
 
 **3. Configure Firebase Admin:**
 * Go to your Firebase project console.
@@ -48,12 +65,38 @@ node server.js
 ## 🛠️ API Reference
 
 ### User Authentication
-- `POST /api/users/register` - Create a new user account (Requires Email, Name, Password).
-- `POST /api/users/login` - Authenticate an existing account and obtain a JWT string.
+- `POST /api/users/register` - App-only registration for role `user`.
+  - Requires `name`, `email`, `password`, and `platform=app` (or `x-client-platform: app`).
+- `POST /api/users/login` - Login with strict platform role checks.
+  - For mobile app: `platform=app` and account role must be `user`.
+  - For admin web: `platform=web` and account role must be `ngo` or `authority`.
 
 ### Posts (Reports)
 - `POST /api/posts/` - Submit a new report. *(Requires JWT Bearer Auth)*
+  - App-only, role must be `user`.
   - Requires `multipart/form-data`.
   - Keys: `image` (file), `lng` (longitude), `lat` (latitude), `description` (optional string).
+  - Automatically generates and stores `aiSummary` from description.
+  - Automatically sends summarized details with location and image metadata to all NGO and authority users under `notifications/{userId}` in Firebase.
+- `GET /api/posts/all` - Fetch all reports for web dashboard. *(Requires JWT; role `ngo` or `authority`; platform `web`)*
 - `GET /api/posts/nearby?lng=...&lat=...&distance=...` - Fetch reports within a radius using spatial mapping. (Default 5000m).
 - `GET /api/posts/:id` - Fetch a single post object by its Firebase ID.
+
+### Chatbot (NVIDIA Nemotron 3 Super - Free)
+- `POST /api/chatbot/` - Chat with assistant. *(Requires JWT Bearer Auth)*
+  - Allowed roles: `user`, `ngo`, `authority`.
+  - Body example:
+
+```json
+{
+  "message": "How do I report an uncovered construction site?",
+  "history": [
+    { "role": "user", "content": "I found dust pollution near my house." },
+    { "role": "assistant", "content": "Please share the exact location and an image." }
+  ]
+}
+```
+
+### Notifications (NGO/Authority Web)
+- `GET /api/notifications?unread=true&limit=50` - Fetch notifications for logged-in NGO/authority account. *(Requires JWT; role `ngo` or `authority`; platform `web`)*
+- `PATCH /api/notifications/:notificationId/read` - Mark one notification as read. *(Requires JWT; role `ngo` or `authority`; platform `web`)*

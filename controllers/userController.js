@@ -1,11 +1,16 @@
 const { db } = require('../config/firebase');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const { resolvePlatform } = require('../config/frontendAccess');
 
 exports.registerUser = async (req, res) => {
-    // role is optional and defaults to 'user'
-    const { name, email, password, role } = req.body;
+    const { name, email, password } = req.body;
     try {
+        const platform = resolvePlatform(req);
+        if (platform !== 'app') {
+            return res.status(403).json({ msg: 'Registration is only available for app users.' });
+        }
+
         const usersRef = db.ref('users');
         const snapshot = await usersRef.orderByChild('email').equalTo(email).once('value');
         if (snapshot.exists()) {
@@ -16,9 +21,8 @@ exports.registerUser = async (req, res) => {
         const hashedPassword = await bcrypt.hash(password, salt);
         
         const newUserRef = usersRef.push();
-        
-        // Ensure role is strictly controlled
-        const userRole = ['user', 'ngo', 'authority'].includes(role) ? role : 'user';
+
+        const userRole = 'user';
 
         await newUserRef.set({
             name,
@@ -27,11 +31,11 @@ exports.registerUser = async (req, res) => {
             role: userRole,
             createdAt: Date.now()
         });
-        
-        const payload = { user: { id: newUserRef.key, role: userRole } };
+
+        const payload = { user: { id: newUserRef.key, role: userRole, platform: 'app' } };
         jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: 360000 }, (err, token) => {
             if (err) throw err;
-            res.json({ token, user: { id: newUserRef.key, name, email, role: userRole } });
+            res.json({ token, user: { id: newUserRef.key, name, email, role: userRole, platform: 'app' } });
         });
     } catch (err) {
         console.error(err.message);
@@ -42,6 +46,11 @@ exports.registerUser = async (req, res) => {
 exports.loginUser = async (req, res) => {
     const { email, password } = req.body;
     try {
+        const platform = resolvePlatform(req);
+        if (!platform) {
+            return res.status(400).json({ msg: 'Platform is required. Send platform as "app" or "web".' });
+        }
+
         const usersRef = db.ref('users');
         const snapshot = await usersRef.orderByChild('email').equalTo(email).once('value');
         
@@ -57,11 +66,19 @@ exports.loginUser = async (req, res) => {
         if (!isMatch) {
             return res.status(400).json({ msg: 'Invalid Credentials' });
         }
+
+        if (platform === 'app' && user.role !== 'user') {
+            return res.status(403).json({ msg: 'Only users can access the app.' });
+        }
+
+        if (platform === 'web' && !['ngo', 'authority'].includes(user.role)) {
+            return res.status(403).json({ msg: 'Only NGOs and authorities can access the web portal.' });
+        }
         
-        const payload = { user: { id: userId, role: user.role || 'user' } };
+        const payload = { user: { id: userId, role: user.role || 'user', platform } };
         jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: 360000 }, (err, token) => {
             if (err) throw err;
-            res.json({ token, user: { id: userId, name: user.name, email: user.email, role: user.role || 'user' } });
+            res.json({ token, user: { id: userId, name: user.name, email: user.email, role: user.role || 'user', platform } });
         });
     } catch (err) {
         console.error(err.message);

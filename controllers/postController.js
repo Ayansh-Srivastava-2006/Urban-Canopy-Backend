@@ -1,5 +1,6 @@
 const { db } = require('../config/firebase');
 const { sendAuthorityAlert } = require('../services/notificationService');
+const { summarizePostDescription } = require('../services/postSummaryService');
 const geofire = require('geofire-common');
 
 exports.createPost = async (req, res) => {
@@ -19,11 +20,17 @@ exports.createPost = async (req, res) => {
 
         const postsRef = db.ref('posts');
         const newPostRef = postsRef.push();
+        const aiSummary = await summarizePostDescription({
+            description,
+            lat: latitude,
+            lng: longitude
+        });
         
         const postData = {
             userId: req.user.id,
             imageUrl: req.file.path.replace(/\\/g, '/'),
             description: description || '',
+            aiSummary,
             location: {
                 lat: latitude,
                 lng: longitude,
@@ -36,8 +43,7 @@ exports.createPost = async (req, res) => {
         await newPostRef.set(postData);
         postData._id = newPostRef.key;
         
-        // Mock notification
-        postData.location.coordinates = [longitude, latitude]; // Format for the notification service mock
+        // Notify NGO and authority users with summarized report details.
         await sendAuthorityAlert(postData);
 
         res.json(postData);
