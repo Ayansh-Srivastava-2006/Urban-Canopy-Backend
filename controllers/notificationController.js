@@ -1,5 +1,9 @@
 const { db } = require('../config/firebase');
 
+/**
+ * GET /api/notifications
+ * Web-only: Returns notifications for the authenticated NGO/authority user.
+ */
 exports.getMyNotifications = async (req, res) => {
     try {
         const onlyUnread = String(req.query.unread || 'false').toLowerCase() === 'true';
@@ -24,27 +28,34 @@ exports.getMyNotifications = async (req, res) => {
         notifications.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
         return res.json({
-            count: notifications.length,
-            notifications: notifications.slice(0, safeLimit)
+            success: true,
+            data: {
+                count: notifications.length,
+                notifications: notifications.slice(0, safeLimit)
+            }
         });
     } catch (err) {
-        console.error(err.message);
-        return res.status(500).json({ msg: 'Failed to fetch notifications.' });
+        console.error('getMyNotifications error:', err.message);
+        return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Failed to fetch notifications.' } });
     }
 };
 
+/**
+ * PATCH /api/notifications/:notificationId/read
+ * Web-only: Marks a notification as read.
+ */
 exports.markNotificationAsRead = async (req, res) => {
     try {
         const { notificationId } = req.params;
         if (!notificationId) {
-            return res.status(400).json({ msg: 'notificationId is required.' });
+            return res.status(400).json({ success: false, error: { code: 'MISSING_ID', message: 'notificationId is required.' } });
         }
 
         const ref = db.ref(`notifications/${req.user.id}/${notificationId}`);
         const snapshot = await ref.once('value');
 
         if (!snapshot.exists()) {
-            return res.status(404).json({ msg: 'Notification not found.' });
+            return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Notification not found.' } });
         }
 
         await ref.update({
@@ -54,11 +65,14 @@ exports.markNotificationAsRead = async (req, res) => {
 
         const updated = (await ref.once('value')).val() || {};
         return res.json({
-            id: notificationId,
-            ...updated
+            success: true,
+            data: {
+                id: notificationId,
+                ...updated
+            }
         });
     } catch (err) {
-        console.error(err.message);
-        return res.status(500).json({ msg: 'Failed to update notification.' });
+        console.error('markNotificationAsRead error:', err.message);
+        return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Failed to update notification.' } });
     }
 };
